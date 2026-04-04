@@ -77,37 +77,51 @@ function tryEpLinks(links, idx, sNum, eNum) {
 function extractVideos(html) {
   var streams = [];
   var seen = {};
-  function add(url) {
+  var allQualities = ["360", "480", "720", "1080"];
+
+  function add(url, q) {
     url = url.replace(/\\\//g, "/").replace(/&amp;/g, "&");
     if (seen[url]) return;
     if (/-t\.(mp4|m3u8)/i.test(url)) return;
     if (/_t\.(mp4|m3u8)/i.test(url)) return;
     if (/thumb|trailer|preview|poster/i.test(url)) return;
     seen[url] = true;
-    var q = "HD";
-    // Check suffix first (-360, -720, etc) before filename middle
-    if (/-360\./i.test(url)) q = "360p";
-    else if (/-480\./i.test(url)) q = "480p";
-    else if (/-720\./i.test(url)) q = "720p";
-    else if (/-1080\./i.test(url)) q = "1080p";
-    else if (/360p/i.test(url)) q = "360p";
-    else if (/480p/i.test(url)) q = "480p";
-    else if (/720p/i.test(url)) q = "720p";
-    else if (/1080p/i.test(url)) q = "1080p";
-    else if (/\.m3u8/i.test(url)) q = "HLS";
+    if (!q) {
+      if (/-360\./i.test(url)) q = "360p";
+      else if (/-480\./i.test(url)) q = "480p";
+      else if (/-720\./i.test(url)) q = "720p";
+      else if (/-1080\./i.test(url)) q = "1080p";
+      else if (/\.m3u8/i.test(url)) q = "HLS";
+      else q = "HD";
+    }
     streams.push({ name: "VODU", title: "VODU " + q, url: url, quality: q });
   }
+
+  // Generate all quality variants from a URL
+  function addWithVariants(url) {
+    add(url);
+    // If URL has -360, -480, -720, or -1080, generate other qualities
+    var match = url.match(/(-)(360|480|720|1080)(\.mp4)/i);
+    if (match) {
+      for (var i = 0; i < allQualities.length; i++) {
+        var variant = url.replace(match[0], match[1] + allQualities[i] + match[3]);
+        add(variant, allQualities[i] + "p");
+      }
+    }
+  }
+
   var m;
   var v1 = /["'](https?:\/\/[^"'\s]*:8888\/[^"'\s]+\.(?:mp4|m3u8)[^"'\s]*)/gi;
-  while ((m = v1.exec(html)) !== null) add(m[1]);
+  while ((m = v1.exec(html)) !== null) addWithVariants(m[1]);
   var v2 = /<(?:source|video)[^>]*src=["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)/gi;
-  while ((m = v2.exec(html)) !== null) add(m[1]);
+  while ((m = v2.exec(html)) !== null) addWithVariants(m[1]);
   var v3 = /(?:file|src|url|videoUrl|source)\s*[:=]\s*["'](https?:\/\/[^"'\s]+\.(?:mp4|m3u8)[^"'\s]*)/gi;
-  while ((m = v3.exec(html)) !== null) add(m[1]);
+  while ((m = v3.exec(html)) !== null) addWithVariants(m[1]);
   var v4 = /"(https?:\\\/\\\/[^"]*\.(?:mp4|m3u8)[^"]*)"/g;
-  while ((m = v4.exec(html)) !== null) add(m[1]);
+  while ((m = v4.exec(html)) !== null) addWithVariants(m[1]);
   var v5 = /["'](https?:\/\/[^"'\s]+\.(?:mp4|m3u8)(?:\?[^"'\s]*)?)/gi;
-  while ((m = v5.exec(html)) !== null) add(m[1]);
+  while ((m = v5.exec(html)) !== null) addWithVariants(m[1]);
+
   var order = {"1080p": 0, "720p": 1, "480p": 2, "360p": 3, "HLS": 4, "HD": 5};
   streams.sort(function(a, b) {
     return (order[a.quality] != null ? order[a.quality] : 9) - (order[b.quality] != null ? order[b.quality] : 9);
