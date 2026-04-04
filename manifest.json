@@ -1,0 +1,28 @@
+{
+  "name": "VODU Iraq",
+  "version": "1.2.0",
+  "scrapers": [
+    {
+      "id": "vodu-iraq",
+      "name": "VODU",
+      "description": "VODU Iraqi streaming - movies and TV shows",
+      "version": "1.2.0",
+      "author": "qvsalam",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/vodu.js",
+      "enabled": true,
+      "formats": [
+        "mp4",
+        "m3u8"
+      ],
+      "logo": "http://movie.vodu.me/img/vodulogo.png",
+      "contentLanguage": [
+        "ar",
+        "en"
+      ]
+    }
+  ]
+}
