@@ -56,18 +56,14 @@ function tryLinks(links, idx, mediaType, season, episode) {
 function filterEpisode(allUrls, sNum, eNum, html) {
   var sStr = sNum < 10 ? "0" + sNum : "" + sNum;
   var eStr = eNum < 10 ? "0" + eNum : "" + eNum;
-
-  // Build patterns to match episode in filename
   var pats = [
     "S" + sStr + "E" + eStr,
     "s" + sStr + "e" + eStr,
     "S" + sNum + "E" + eNum,
     "s" + sNum + "e" + eNum
   ];
-
   var streams = [];
   var seen = {};
-
   for (var i = 0; i < allUrls.length; i++) {
     var url = allUrls[i];
     if (isSkip(url)) continue;
@@ -84,8 +80,6 @@ function filterEpisode(allUrls, sNum, eNum, html) {
       streams.push({ name: "VODU", title: "VODU " + getQ(url), url: url, quality: getQ(url) });
     }
   }
-
-  // If no match by SxxExx, try just by episode number pattern
   if (streams.length === 0) {
     var epPats = [
       "_E" + eStr + "_", "_E" + eStr + "-", "_E" + eStr + ".",
@@ -106,7 +100,6 @@ function filterEpisode(allUrls, sNum, eNum, html) {
       }
     }
   }
-
   addVariants(streams, html);
   sortStreams(streams);
   return streams;
