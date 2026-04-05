@@ -30,121 +30,76 @@ function searchVODU(titles, idx, mediaType, season, episode) {
         if (links.indexOf(href) === -1) links.push(href);
       }
       if (links.length === 0) return searchVODU(titles, idx + 1, mediaType, season, episode);
-      if (mediaType === "tv" && season && episode) {
-        return findEpisode(links, parseInt(season) || 1, parseInt(episode) || 1);
-      }
-      return tryLinks(links, 0);
+      return tryLinks(links, 0, mediaType, season, episode);
     })
     .catch(function() { return searchVODU(titles, idx + 1, mediaType, season, episode); });
 }
 
-function findEpisode(searchLinks, sNum, eNum) {
-  // Each search result is a season/series page
-  // Try each one to find episode links inside
-  return trySeriesPages(searchLinks, 0, sNum, eNum);
-}
-
-function trySeriesPages(pages, idx, sNum, eNum) {
-  if (idx >= pages.length) return [];
-
-  return fetch(pages[idx])
-    .then(function(r) { return r.text(); })
-    .then(function(html) {
-      // Get all episode links from this series page
-      var epLinks = [];
-      var re = /href=["']([^"']*do=view[^"']*)["']/gi;
-      var m;
-      while ((m = re.exec(html)) !== null) {
-        var href = m[1].replace(/&amp;/g, "&");
-        if (href.indexOf("http") !== 0) href = "https://movie.vodu.me/" + href.replace(/^\//, "");
-        if (epLinks.indexOf(href) === -1) epLinks.push(href);
-      }
-
-      if (epLinks.length === 0) {
-        // This page has no sub-links, maybe it IS an episode
-        var streams = extractVideos(html);
-        if (streams.length > 0) return streams;
-        return trySeriesPages(pages, idx + 1, sNum, eNum);
-      }
-
-      // Episodes are listed in order - pick by episode number
-      // Episode 1 = first link, Episode 2 = second link, etc.
-      var epIndex = eNum - 1;
-
-      if (epIndex >= 0 && epIndex < epLinks.length) {
-        // Found the episode link, extract videos from it
-        return fetch(epLinks[epIndex])
-          .then(function(r2) { return r2.text(); })
-          .then(function(epHtml) {
-            var streams = extractVideos(epHtml);
-            if (streams.length > 0) return streams;
-            // If no streams, try next series page
-            return trySeriesPages(pages, idx + 1, sNum, eNum);
-          })
-          .catch(function() {
-            return trySeriesPages(pages, idx + 1, sNum, eNum);
-          });
-      }
-
-      // Episode number out of range, try next series page (maybe different season)
-      return trySeriesPages(pages, idx + 1, sNum, eNum);
-    })
-    .catch(function() {
-      return trySeriesPages(pages, idx + 1, sNum, eNum);
-    });
-}
-
-function tryLinks(links, idx) {
+function tryLinks(links, idx, mediaType, season, episode) {
   if (idx >= links.length) return [];
   return fetch(links[idx])
     .then(function(r) { return r.text(); })
     .then(function(html) {
-      var s = extractVideos(html);
+      var s;
+      if (mediaType === "tv" && season && episode) {
+        s = extractEpisodeVideos(html, parseInt(season) || 1, parseInt(episode) || 1);
+      } else {
+        s = extractVideos(html);
+      }
       if (s.length > 0) return s;
-      return tryLinks(links, idx + 1);
+      return tryLinks(links, idx + 1, mediaType, season, episode);
     })
-    .catch(function() { return tryLinks(links, idx + 1); });
+    .catch(function() { return tryLinks(links, idx + 1, mediaType, season, episode); });
 }
 
-function extractVideos(html) {
+function extractEpisodeVideos(html, sNum, eNum) {
+  // Get ALL video URLs from page
+  var allUrls = getAllVideoUrls(html);
+
+  // Build episode patterns to match in filename
+  var sStr = sNum < 10 ? "0" + sNum : "" + sNum;
+  var eStr = eNum < 10 ? "0" + eNum : "" + eNum;
+  var patterns = [
+    "S" + sStr + "E" + eStr,
+    "S" + sNum + "E" + eNum,
+    "s" + sStr + "e" + eStr,
+    "_" + sStr + "x" + eStr,
+    "E" + eStr + "_",
+    "E" + eStr + "-",
+    "E" + eStr + ".",
+    "_E" + eNum + "_",
+    "_E" + eNum + "-",
+    "_E" + eNum + "."
+  ];
+
   var streams = [];
   var seen = {};
 
-  function add(url) {
-    url = url.replace(/\\\//g, "/").replace(/&amp;/g, "&");
-    if (seen[url]) return;
-    if (/-t\.(mp4|m3u8)/i.test(url)) return;
-    if (/_t\.(mp4|m3u8)/i.test(url)) return;
-    if (/thumb|trailer|preview|poster/i.test(url)) return;
-    seen[url] = true;
-    var q = "HD";
-    if (/-360\./i.test(url)) q = "360p";
-    else if (/-480\./i.test(url)) q = "480p";
-    else if (/-720\./i.test(url)) q = "720p";
-    else if (/-1080\./i.test(url)) q = "1080p";
-    else if (/\.m3u8/i.test(url)) q = "HLS";
-    streams.push({ name: "VODU", title: "VODU " + q, url: url, quality: q });
+  for (var i = 0; i < allUrls.length; i++) {
+    var url = allUrls[i];
+    var matched = false;
+    for (var p = 0; p < patterns.length; p++) {
+      if (url.toUpperCase().indexOf(patterns[p].toUpperCase()) > -1) {
+        matched = true;
+        break;
+      }
+    }
+    if (matched && !seen[url]) {
+      if (/-t\.(mp4|m3u8)/i.test(url)) continue;
+      if (/_t\.(mp4|m3u8)/i.test(url)) continue;
+      if (/thumb|trailer|preview|poster/i.test(url)) continue;
+      seen[url] = true;
+      var q = getQuality(url);
+      streams.push({ name: "VODU", title: "VODU " + q, url: url, quality: q });
+    }
   }
 
-  var m;
-  var patterns = [
-    /["'](https?:\/\/[^"'\s]*:8888\/[^"'\s]+\.(?:mp4|m3u8)[^"'\s]*)/gi,
-    /<(?:source|video)[^>]*src=["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)/gi,
-    /(?:file|src|url|videoUrl|source)\s*[:=]\s*["'](https?:\/\/[^"'\s]+\.(?:mp4|m3u8)[^"'\s]*)/gi,
-    /"(https?:\\\/\\\/[^"]*\.(?:mp4|m3u8)[^"]*)"/g,
-    /["'](https?:\/\/[^"'\s]+\.(?:mp4|m3u8)(?:\?[^"'\s]*)?)/gi
-  ];
-
-  for (var p = 0; p < patterns.length; p++) {
-    while ((m = patterns[p].exec(html)) !== null) add(m[1]);
-  }
-
-  // Add 720p variant if page mentions 720 but no 720p stream found
+  // Add 720p variant if missing
   var has720 = false;
   var baseUrl = null;
-  for (var i = 0; i < streams.length; i++) {
-    if (streams[i].quality === "720p") has720 = true;
-    if (!baseUrl && /-(?:360|1080)\./i.test(streams[i].url)) baseUrl = streams[i].url;
+  for (var j = 0; j < streams.length; j++) {
+    if (streams[j].quality === "720p") has720 = true;
+    if (!baseUrl && /-(?:360|1080)\./i.test(streams[j].url)) baseUrl = streams[j].url;
   }
   if (!has720 && baseUrl && html.indexOf("720") > -1) {
     var url720 = baseUrl.replace(/-(?:360|1080)\./i, "-720.");
@@ -156,5 +111,67 @@ function extractVideos(html) {
     return (order[a.quality] != null ? order[a.quality] : 9) - (order[b.quality] != null ? order[b.quality] : 9);
   });
   return streams;
+}
+
+function extractVideos(html) {
+  var allUrls = getAllVideoUrls(html);
+  var streams = [];
+  var seen = {};
+
+  for (var i = 0; i < allUrls.length; i++) {
+    var url = allUrls[i];
+    if (seen[url]) continue;
+    if (/-t\.(mp4|m3u8)/i.test(url)) continue;
+    if (/_t\.(mp4|m3u8)/i.test(url)) continue;
+    if (/thumb|trailer|preview|poster/i.test(url)) continue;
+    seen[url] = true;
+    var q = getQuality(url);
+    streams.push({ name: "VODU", title: "VODU " + q, url: url, quality: q });
+  }
+
+  var has720 = false;
+  var baseUrl = null;
+  for (var j = 0; j < streams.length; j++) {
+    if (streams[j].quality === "720p") has720 = true;
+    if (!baseUrl && /-(?:360|1080)\./i.test(streams[j].url)) baseUrl = streams[j].url;
+  }
+  if (!has720 && baseUrl && html.indexOf("720") > -1) {
+    var url720 = baseUrl.replace(/-(?:360|1080)\./i, "-720.");
+    streams.push({ name: "VODU", title: "VODU 720p", url: url720, quality: "720p" });
+  }
+
+  var order = {"1080p": 0, "720p": 1, "480p": 2, "360p": 3, "HLS": 4, "HD": 5};
+  streams.sort(function(a, b) {
+    return (order[a.quality] != null ? order[a.quality] : 9) - (order[b.quality] != null ? order[b.quality] : 9);
+  });
+  return streams;
+}
+
+function getAllVideoUrls(html) {
+  var urls = [];
+  var m;
+  var patterns = [
+    /["'](https?:\/\/[^"'\s]*:8888\/[^"'\s]+\.(?:mp4|m3u8)[^"'\s]*)/gi,
+    /<(?:source|video)[^>]*src=["'](https?:\/\/[^"']+\.(?:mp4|m3u8)[^"']*)/gi,
+    /(?:file|src|url|videoUrl|source)\s*[:=]\s*["'](https?:\/\/[^"'\s]+\.(?:mp4|m3u8)[^"'\s]*)/gi,
+    /"(https?:\\\/\\\/[^"]*\.(?:mp4|m3u8)[^"]*)"/g,
+    /["'](https?:\/\/[^"'\s]+\.(?:mp4|m3u8)(?:\?[^"'\s]*)?)/gi
+  ];
+  for (var p = 0; p < patterns.length; p++) {
+    while ((m = patterns[p].exec(html)) !== null) {
+      var url = m[1].replace(/\\\//g, "/").replace(/&amp;/g, "&");
+      if (urls.indexOf(url) === -1) urls.push(url);
+    }
+  }
+  return urls;
+}
+
+function getQuality(url) {
+  if (/-360\./i.test(url)) return "360p";
+  if (/-480\./i.test(url)) return "480p";
+  if (/-720\./i.test(url)) return "720p";
+  if (/-1080\./i.test(url)) return "1080p";
+  if (/\.m3u8/i.test(url)) return "HLS";
+  return "HD";
 }
 module.exports = { getStreams: getStreams };
